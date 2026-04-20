@@ -1,143 +1,147 @@
 # Video2Slides
 
-Extract presentation slides from lecture videos, deduplicate, and produce lossless PDF — automatically.
+从演讲视频中自动提取 PPT 幻灯片，去重后生成无损 PDF。
 
-## Features
+## 简介
 
-- One-command slide extraction from Bilibili / YouTube videos
-- Dual-hash deduplication (pHash + dHash) — handles repeated slides and template-heavy academic PPTs
-- Laplacian variance filter — skips speaker close-ups and transition frames
-- User-annotated ROI detection (red box + HSV, no multimodal model needed)
-- Optional upscaling (dnn_superres or Lanczos + USM) for blurry text
-- Lossless PDF output via `img2pdf` — zero re-encoding
+学术讲座、在线课程、技术分享的视频中，PPT 幻灯片是最核心的信息载体。但手动截图既低效又容易遗漏。Video2Slides 将整个流程自动化：下载视频、识别幻灯片区域、智能去重、可选画质增强，最终输出一份可直接使用的 PDF 文档。
 
-## Quick Start
+核心特点：
 
-### Install dependencies
+- 一条命令从 B 站 / YouTube 视频提取全部幻灯片
+- pHash + dHash 双哈希去重，模板相同的学术 PPT 也不会误删
+- Laplacian 方差过滤，自动跳过演讲者特写和转场画面
+- 用户红框标注 ROI（纯代码方案，无需多模态模型）
+- 可选画质增强（dnn_superres 或 Lanczos + USM）
+- img2pdf 无损 PDF 输出，零重编码
+
+## 快速开始
+
+### 安装依赖
 
 ```bash
 pip install opencv-python imagehash Pillow img2pdf yt-dlp numpy
 ```
 
-For dnn_superres upscaling (optional):
+如需 dnn_superres 超分辨率增强（可选）：
 
 ```bash
 pip install opencv-contrib-python
-# Download an EDSR model, e.g. EDSR_x2.pb
+# 下载 EDSR 模型文件，如 EDSR_x2.pb
 ```
 
-### 1. Download video
+### 第 1 步：下载视频
 
 ```bash
-# Bilibili — MUST use --proxy ""
+# B 站 — 必须加 --proxy "" 绕过代理
 yt-dlp --proxy "" -f "bestvideo[height<=1080]+bestaudio/best[height<=1080]" -o "video.mp4" <URL>
 
 # YouTube
 yt-dlp -f "bestvideo[height<=1080]+bestaudio/best[height<=1080]" -o "video.mp4" <URL>
 ```
 
-### 2. Determine ROI (if needed)
+### 第 2 步：确定 ROI（如需裁剪）
 
-For full-screen recordings — skip this step and use the whole frame.
-
-For picture-in-picture / conference recordings:
+全屏录屏视频可直接跳过，使用整帧提取。画中画/会议直播需要裁掉非 PPT 区域：
 
 ```bash
-# Step A: extract a clean frame for annotation
-python detect_roi.py --extract video.mp4
-# → saves draw_roi_here.png
+# A. 提取一帧纯画面，供标注
+python scripts/detect_roi.py --extract video.mp4
+# → 输出 draw_roi_here.png
 
-# Step B: draw a RED box around the PPT area in any image editor, save as annotated.png
+# B. 用画图/PS 等工具在 PPT 区域画红框，保存为 annotated.png
 
-# Step C: detect ROI and test cropping
-python detect_roi.py annotated.png --test video.mp4
-# → prints normalized coordinates and saves test crops
+# C. 检测红框坐标并裁剪测试
+python scripts/detect_roi.py annotated.png --test video.mp4
+# → 输出归一化坐标和多帧测试图，确认边界准确后进入下一步
 ```
 
-### 3. Extract slides
+### 第 3 步：提取幻灯片
 
 ```bash
-# Full frame (no crop)
-python extract_slides.py video.mp4 --output slides/
+# 整帧提取（无需裁剪）
+python scripts/extract_slides.py video.mp4 --output slides/
 
-# With ROI
-python extract_slides.py video.mp4 --roi 0.085 0.185 0.691 0.788 --output slides/
+# 指定 ROI 区域
+python scripts/extract_slides.py video.mp4 --roi 0.085 0.185 0.691 0.788 --output slides/
 ```
 
-Key parameters (defaults work well for 1080p academic talks):
+可调参数（默认值对 1080P 学术讲座通用）：
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `--interval` | 1.0 | Sampling interval in seconds |
-| `--phash` | 10 | pHash hamming distance threshold |
-| `--dhash` | 10 | dHash hamming distance threshold |
-| `--laplacian` | 300 | Laplacian variance threshold (filters non-slide frames) |
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--interval` | 1.0 | 采样间隔（秒） |
+| `--phash` | 10 | pHash 汉明距离阈值 |
+| `--dhash` | 10 | dHash 汉明距离阈值 |
+| `--laplacian` | 300 | Laplacian 方差阈值（过滤非 slide 帧） |
 
-### 4. Upscale (optional)
+### 第 4 步：画质优化（可选）
 
-If text appears blurry after ROI cropping:
+ROI 裁剪后宽度 >= 1920 通常不需要。如文字模糊：
 
 ```bash
-# Auto-select best available method
-python upscale_slides.py slides/ --output slides_upscaled/
+# 自动选择最佳方案
+python scripts/upscale_slides.py slides/ --output slides_upscaled/
 
-# Explicit method
-python upscale_slides.py slides/ --method lanczos --output slides_upscaled/
-python upscale_slides.py slides/ --method dnn_superres --model EDSR_x2.pb --output slides_upscaled/
+# 手动指定
+python scripts/upscale_slides.py slides/ --method lanczos --output slides_upscaled/
+python scripts/upscale_slides.py slides/ --method dnn_superres --model EDSR_x2.pb --output slides_upscaled/
 ```
 
-### 5. Generate PDF
+### 第 5 步：生成 PDF
 
 ```bash
-python generate_pdf.py slides/ --output presentation.pdf
+python scripts/generate_pdf.py slides/ --output 输出文件名.pdf
 
-# If upscaled
-python generate_pdf.py slides_upscaled/ --output presentation.pdf
+# 若做了画质优化
+python scripts/generate_pdf.py slides_upscaled/ --output 输出文件名.pdf
 ```
 
-## How It Works
+## 原理说明
 
-### Dual-hash deduplication
+### 双哈希去重
 
-Two layers ensure no duplicates and no false deletions:
+两层去重机制确保无重复、无误删：
 
-- **Layer 1 (adjacent frame)**: Compares each frame to the previous one. If both pHash and dHash distances are below threshold, the frame is skipped. Filters consecutive frames of the same slide.
-- **Layer 2 (global)**: Compares against all saved slides. Handles the case where a speaker returns to an earlier slide.
+- **Layer 1（相邻帧检测）**：与上一帧比较，pHash 和 dHash 汉明距离均低于阈值则跳过。过滤同一 slide 的连续帧。
+- **Layer 2（全局去重）**：与所有已保存 slide 比较，两者均低于阈值则跳过。处理"讲者回到前面 slide"的情况。
 
-Why both hashes? Academic PPTs often share the same template — pHash alone misses content differences on structurally similar slides. dHash catches pixel-level text changes. Both must agree a frame is duplicate to skip it.
+为什么需要双哈希？学术 PPT 常用统一模板，不同内容的 slide 结构高度相似，pHash 单独使用会误判为重复。dHash 对像素级文字变化更敏感，能区分模板相同但文字不同的 slide。两者必须同时判定为重复才跳过。
 
-### Laplacian variance filter
+### Laplacian 方差过滤
 
-Frames with Laplacian variance below 300 are typically speaker close-ups, audience shots, or transition animations — not slides. These are automatically excluded.
+Laplacian 方差低于 300 的帧通常是演讲者特写、观众镜头或转场动画，不是 slide，自动排除。
 
-### Lossless PDF
+### 无损 PDF
 
-`img2pdf` embeds raw PNG byte streams into PDF. No re-encoding, no quality loss. Do NOT use PIL `Image.save()` — even at `quality=100` it re-encodes and degrades text.
+使用 `img2pdf` 将 PNG 原始字节流直接嵌入 PDF，不经过任何重编码。**切勿使用 PIL `Image.save()` 生成 PDF**，即使 `quality=100` 也会重新 JPEG 编码，造成不可逆的文字模糊。
 
-## Pitfall Reference
+## 踩坑记录
 
-| Problem | Wrong approach | Correct approach |
-|---------|---------------|-----------------|
-| Bilibili download fails | `yt-dlp` directly | Add `--proxy ""` |
-| ROI detection | CV edge detection / multimodal LLM | User red box + HSV detection |
-| Slide deduplication | SSIM alone or pHash alone | pHash + dHash dual-hash |
-| Non-slide frame filtering | Brightness threshold | Laplacian variance threshold |
-| PDF quality | PIL `Image.save()` | `img2pdf` raw byte embedding |
-| Blurry text | Use low-res as-is | dnn_superres (preferred) → Lanczos 2x + USM (fallback) |
+| 问题 | 错误做法 | 正确做法 |
+|------|---------|---------|
+| B 站下载失败 | 直接 yt-dlp | 加 `--proxy ""` |
+| ROI 确定 | CV 边缘检测 / 多模态 LLM | 用户画红框 + HSV 检测（纯代码，无需多模态） |
+| Slide 去重 | 仅 SSIM 或仅 pHash | pHash + dHash 双哈希，两者同时判重 |
+| 非 slide 帧过滤 | 亮度阈值 | Laplacian 方差阈值 |
+| PDF 画质 | PIL `Image.save()` | `img2pdf` 原始字节嵌入 |
+| 文字模糊 | 低分辨率直接用 | dnn_superres（优先）→ Lanczos 2x + USM（回退） |
 
-## File Overview
+## 目录结构
 
 ```
 video2slides/
-├── SKILL.md            # Skill definition (trigger words, full SOP)
-├── README.md           # This file
-├── LICENSE             # MIT License
-├── detect_roi.py       # ROI detection via red box + HSV
-├── extract_slides.py   # Slide extraction with dual-hash dedup
-├── upscale_slides.py   # Optional upscaling (dnn_superres / Lanczos+USM)
-└── generate_pdf.py     # Lossless PDF generation
+├── SKILL.md              # Skill 定义（触发词、完整 SOP）
+├── README.md             # 本文件
+├── LICENSE               # MIT 许可证
+├── .gitignore
+└── scripts/
+    ├── detect_roi.py     # ROI 检测（红框 + HSV）
+    ├── extract_slides.py # Slide 提取 + 双哈希去重
+    ├── upscale_slides.py # 画质优化（dnn_superres / Lanczos+USM）
+    └── generate_pdf.py   # 无损 PDF 生成
 ```
 
-## License
+## 许可证
 
 MIT
