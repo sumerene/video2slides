@@ -1,0 +1,36 @@
+# Video files
+*.mp4
+*.mkv
+*.webm
+*.avi
+
+# Output directories
+slides/
+slides_upscaled/
+
+# ROI annotation / test files
+draw_roi_here.png
+annotated.png
+roi_test_*.png
+
+# Generated PDFs
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
